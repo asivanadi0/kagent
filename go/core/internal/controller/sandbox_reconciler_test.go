@@ -507,6 +507,25 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
+// A queued attempt can run after the API server has already removed the
+// template. Finalizer removal then finds nothing and must not count as a failure.
+func TestSandboxFinalizerRemovalIgnoresDeletedTemplate(t *testing.T) {
+	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
+	const key = "team-a/scratch"
+	deleting := sandboxTestTemplate()
+	deleting.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	deleting.Finalizers = []string{sandboxPreparationFinalizer}
+	templates.UpdateObject(deleting)
+	waitFor(t, func() bool { return !s.collections.states.GetKey(key).Template.DeletionTimestamp.IsZero() })
+	s.client = kagentfake.NewSimpleClientset().ApiV1alpha3()
+
+	require.NoError(t, s.reconcile(t.Context(), key))
+	store := s.store.(*sandboxTestStore)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	require.True(t, store.retired)
+}
+
 func TestSandboxPreparationPollFollowsGoldenState(t *testing.T) {
 	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
 	const key = "team-a/scratch"

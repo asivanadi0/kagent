@@ -13,6 +13,7 @@ import (
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -135,7 +136,8 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		if state != nil && slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
 			updated := state.Template.DeepCopy()
 			updated.Finalizers = slices.DeleteFunc(updated.Finalizers, func(value string) bool { return value == sandboxPreparationFinalizer })
-			if _, err := s.client.SandboxTemplates(updated.Namespace).Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+			// A queued attempt can outlive the object; then there is nothing left to finalize.
+			if _, err := s.client.SandboxTemplates(updated.Namespace).Update(ctx, updated, metav1.UpdateOptions{}); err != nil && !apierrors.IsNotFound(err) {
 				return fmt.Errorf("remove SandboxTemplate %s finalizer: %w", key, err)
 			}
 		}
